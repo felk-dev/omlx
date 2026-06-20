@@ -263,11 +263,19 @@ class BatchedEngine(BaseEngine):
                 model, processor = custom_loaded
                 return model, getattr(processor, "tokenizer", processor)
 
-            return load(
-                self._model_name,
-                tokenizer_config=tokenizer_config,
-                trust_remote_code=self._trust_remote_code,
-            )
+            try:
+                return load(
+                    self._model_name,
+                    tokenizer_config=tokenizer_config,
+                    trust_remote_code=self._trust_remote_code,
+                )
+            except TypeError as e:
+                if "trust_remote_code" in str(e):
+                    return load(
+                        self._model_name,
+                        tokenizer_config=tokenizer_config,
+                    )
+                raise
 
         loop = asyncio.get_running_loop()
         self._model, self._tokenizer = await loop.run_in_executor(
@@ -365,11 +373,20 @@ class BatchedEngine(BaseEngine):
                                 specprefill_draft,
                                 trust_remote_code=self._trust_remote_code,
                             )
-                            draft_model, _ = load(
-                                specprefill_draft,
-                                tokenizer_config=draft_tokenizer_config,
-                                trust_remote_code=self._trust_remote_code,
-                            )
+                            try:
+                                draft_model, _ = load(
+                                    specprefill_draft,
+                                    tokenizer_config=draft_tokenizer_config,
+                                    trust_remote_code=self._trust_remote_code,
+                                )
+                            except TypeError as e:
+                                if "trust_remote_code" in str(e):
+                                    draft_model, _ = load(
+                                        specprefill_draft,
+                                        tokenizer_config=draft_tokenizer_config,
+                                    )
+                                else:
+                                    raise
                             # Materialize frozen buffers (RoPE freqs, etc.)
                             # on the loader thread. mlx_lm.load only does
                             # mx.eval(model.parameters()) and leaves siblings
