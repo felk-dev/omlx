@@ -86,10 +86,6 @@ def maybe_apply_pre_load_patches(
       declares ``model_type == "step3p7"``.
     - Llama 4 attention offset patch when ``config.json`` declares
       ``model_type == "llama4"`` directly or under ``text_config``.
-    - GLM-5.2 ``glm_moe_dsa`` patch (mlx-lm PR 1410) when ``config.json``
-      declares ``model_type == "glm_moe_dsa"``. Required because pinned
-      mlx-lm exposes it as a bare DeepSeek-V3.2 subclass and cannot load
-      checkpoints whose shared DSA layers carry no indexer weights.
     - Native MTP patch (PR 990 + PR 15) when the config declares MTP heads
       on a supported model_type. Always applied for sanitize correctness;
       head attachment is gated by ``model_settings.mtp_enabled``.
@@ -122,6 +118,14 @@ def maybe_apply_pre_load_patches(
     set_mtp_active(False)
 
     _patch_mlx_lm_load_config()
+
+    try:
+        import mlx_lm.utils as _utils
+        remapping = getattr(_utils, "MODEL_REMAPPING", None)
+        if isinstance(remapping, dict):
+            remapping.setdefault("qwen3_5_moe_text", "qwen3_5_moe")
+    except ImportError:
+        pass
 
     config_path = Path(model_name) / "config.json"
     if not config_path.exists():
@@ -156,12 +160,6 @@ def maybe_apply_pre_load_patches(
 
         if apply_llama4_attention_patch():
             logger.info("Llama 4 attention patch applied for %s", model_name)
-
-    if model_type == "glm_moe_dsa":
-        from ..patches.glm_moe_dsa import apply_glm_moe_dsa_patch
-
-        if apply_glm_moe_dsa_patch():
-            logger.info("GLM MoE DSA pre-load patch applied for %s", model_name)
 
     if for_vlm and model_type == "diffusion_gemma":
         from ..patches.mlx_vlm_diffusion import apply_mlx_vlm_diffusion_patch
@@ -461,11 +459,19 @@ def load_text_model(
         if model_settings is not None
         else False
     )
-    return load(
-        model_name,
-        tokenizer_config=tokenizer_config,
-        trust_remote_code=trust_remote_code,
-    )
+    try:
+        return load(
+            model_name,
+            tokenizer_config=tokenizer_config,
+            trust_remote_code=trust_remote_code,
+        )
+    except TypeError as e:
+        if "trust_remote_code" in str(e):
+            return load(
+                model_name,
+                tokenizer_config=tokenizer_config,
+            )
+        raise
 
 
 def materialize_lazy_state(model: Any) -> None:
